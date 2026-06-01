@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Sixt · Damage Detection</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/konva@9.3.20/konva.min.js"></script>
+<script src="https://unpkg.com/alpinejs@3.14.9/dist/cdn.min.js" defer></script>
+<style>
+  :root {
+    --sixt: #ff5f00;
+    --sixt-soft: rgba(255, 95, 0, 0.15);
+    --sixt-glow: rgba(255, 95, 0, 0.4);
+
+    --bg-0: #000000;
+    --bg-1: #0a0a0a;
+    --bg-2: #1c1c1e;
+    --bg-3: #2c2c2e;
+    --bg-card: rgba(255, 255, 255, 0.04);
+    --bg-card-hover: rgba(255, 255, 255, 0.07);
+
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.14);
+
+    --text-1: #f5f5f7;
+    --text-2: rgba(255, 255, 255, 0.62);
+    --text-3: rgba(255, 255, 255, 0.38);
+  }
+
+  * {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  html, body {
+    background: var(--bg-0);
+    color: var(--text-1);
+    font-family: -apple-system, "SF Pro Display", "SF Pro Text", BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    font-feature-settings: 'cv11', 'ss01';
+    letter-spacing: -0.011em;
+  }
+
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+  /* Glass surfaces */
+  .glass {
+    background: rgba(28, 28, 30, 0.72);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border: 1px solid var(--border-subtle);
+  }
+  .glass-strong {
+    background: rgba(28, 28, 30, 0.92);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+  }
+
+  /* Canvas */
+  .canvas-area {
+    background:
+      radial-gradient(circle at 20% 30%, rgba(255, 95, 0, 0.04) 0%, transparent 50%),
+      radial-gradient(circle at 80% 70%, rgba(255, 95, 0, 0.02) 0%, transparent 50%),
+      #0a0a0a;
+    position: relative;
+  }
+  #konva-container { cursor: grab; }
+  #konva-container:active { cursor: grabbing; }
+
+  /* Floating overlays */
+  .floating {
+    position: absolute;
+    background: rgba(28, 28, 30, 0.78);
+    backdrop-filter: saturate(180%) blur(24px);
+    -webkit-backdrop-filter: saturate(180%) blur(24px);
+    border: 1px solid var(--border-subtle);
+    border-radius: 14px;
+    box-shadow: 0 20px 60px -10px rgba(0, 0, 0, 0.6);
+  }
+
+  .zoom-overlay {
+    bottom: 24px;
+    right: 24px;
+    padding: 6px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    z-index: 10;
+  }
+  .zoom-overlay button {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text-1);
+    font-size: 18px;
+    transition: background 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .zoom-overlay button:hover { background: rgba(255, 255, 255, 0.08); }
+  .zoom-overlay button:active { background: rgba(255, 255, 255, 0.12); }
+  .zoom-pct {
+    color: var(--text-2);
+    font-size: 12px;
+    font-family: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, monospace;
+    font-feature-settings: 'tnum';
+    padding: 0 10px;
+    min-width: 56px;
+    text-align: center;
+  }
+
+  .info-chip {
+    top: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 8px 18px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 500;
+    z-index: 10;
+    color: var(--text-1);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* Buttons */
+  .btn-primary {
+    background: linear-gradient(180deg, #ff7733 0%, #ff5f00 100%);
+    color: white;
+    font-weight: 600;
+    border-radius: 12px;
+    padding: 12px 16px;
+    transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow:
+      0 8px 24px -6px var(--sixt-glow),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 95, 0, 0.4);
+    width: 100%;
+    text-align: center;
+    font-size: 14px;
+    letter-spacing: -0.01em;
+  }
+  .btn-primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow:
+      0 12px 30px -6px var(--sixt-glow),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.25);
+  }
+  .btn-primary:active:not(:disabled) { transform: translateY(0); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .btn-ghost {
+    background: var(--bg-card);
+    color: var(--text-1);
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    padding: 7px 12px;
+    font-size: 13px;
+    transition: all 0.15s;
+  }
+  .btn-ghost:hover { background: var(--bg-card-hover); border-color: var(--border-strong); }
+
+  /* Cards */
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .card:hover { background: var(--bg-card-hover); }
+  .card-strong {
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid var(--border-strong);
+  }
+
+  /* Apple-style switch (segmented) */
+  .toggle-card {
+    cursor: pointer;
+    transition: all 0.18s;
+  }
+  .toggle-card.active {
+    background: var(--sixt-soft);
+    border-color: var(--sixt);
+  }
+
+  /* Sixt-orange Class-Pills */
+  .label-color { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .scratch  { background: #ff5050; }
+  .stone_chip { background: #ffa000; }
+  .dent  { background: #3cb4ff; }
+  .crack { background: #c83cff; }
+  .missing { background: #ff3cc8; }
+  .major { background: #ff143c; }
+  .other { background: #787878; }
+
+  kbd {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border-subtle);
+    padding: 2px 7px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-family: 'SF Mono', SFMono-Regular, ui-monospace, monospace;
+    color: var(--text-1);
+  }
+
+  /* Selection */
+  ::selection { background: var(--sixt-soft); color: white; }
+
+  /* Smooth transitions everywhere */
+  button, input, label, .card { transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); }
+
+  /* Subtle pulse for loading */
+  @keyframes subtle-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  .loading-pulse { animation: subtle-pulse 1.6s ease-in-out infinite; }
+
+  /* Tile-mode glow ring */
+  .ring-sixt {
+    box-shadow:
+      0 0 0 1px var(--sixt),
+      0 0 24px -4px var(--sixt-glow);
+  }
+</style>
+</head>
+<body class="min-h-screen">
+<div x-data="app()" x-init="init()">
+
+  <!-- ==== Top Bar ==== -->
+  <header class="glass-strong sticky top-0 z-30 px-7 py-3 flex items-center justify-between border-b border-white/[0.06]">
+    <div class="flex items-center gap-5">
+      <div class="flex items-center gap-2">
+        <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, #ff7733, #ff5f00)">
+          <span class="text-white font-bold text-sm">S</span>
+        </div>
+        <div>
+          <div class="text-sm font-semibold tracking-tight">Damage Detection</div>
+          <div class="text-[10px] text-white/50 -mt-0.5">Sixt · Gemini Pro 🔴 vs. Flash 🔵</div>
+        </div>
+      </div>
+      <button @click="view = 'cars'; selectedCar = null; selectedImage = null"
+              class="text-sm transition"
+              :class="view === 'cars' ? 'text-white font-medium' : 'text-white/60 hover:text-white'">
+        Vehicles
+      </button>
+    </div>
+    <div class="flex gap-5 items-center text-xs text-white/50">
+      <span x-show="stats" class="font-mono">
+        <span x-text="stats?.cars || 0"></span> vehicles · <span x-text="stats?.predictions_cached || 0"></span> analyses cached
+      </span>
+    </div>
+  </header>
+
+  <!-- ==== Cars View ==== -->
+  <main x-show="view === 'cars'" class="max-w-[1400px] mx-auto px-7 py-8">
+    <div class="mb-6">
+      <h1 class="text-3xl font-bold tracking-tight mb-2">Vehicles</h1>
+      <p class="text-sm text-white/50">Select a vehicle to inspect for damages with Gemini AI</p>
+    </div>
+
+    <!-- Filters -->
+    <div class="flex items-center gap-3 mb-6">
+      <label class="card px-3 py-2 cursor-pointer text-sm flex items-center gap-2 hover:scale-[1.01] active:scale-100">
+        <input type="checkbox" x-model="filterHasDamages" @change="loadCars()" class="accent-orange-500">
+        <span class="text-white/80">Mit DB-Damages</span>
+      </label>
+      <button @click="onlyTest = !onlyTest; loadCars()"
+              class="card px-3 py-2 text-sm transition"
+              :class="onlyTest ? 'card-strong text-orange-500 border-orange-500' : 'text-white/80'">
+        🧪 Test-Cases
+      </button>
+      <div class="ml-auto text-xs text-white/40 font-mono" x-text="`${cars.length} vehicles`"></div>
+    </div>
+
+    <!-- Grid -->
+    <div class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+      <template x-for="car in cars" :key="car.plate_safe">
+        <button @click="loadCar(car.plate_safe)"
+                class="card p-4 text-left hover:scale-[1.015] active:scale-[1.005] group"
+                :class="car.is_test ? 'card-strong border-orange-500/40' : ''">
+          <div class="flex items-center justify-between mb-2">
+            <div class="font-mono font-semibold text-sm tracking-tight" x-text="car.plate_original"></div>
+            <span x-show="car.is_test" class="text-[10px] font-semibold bg-orange-500 text-white px-2 py-0.5 rounded-md">TEST</span>
+          </div>
+          <div class="flex items-center gap-3 text-[11px] text-white/40 font-mono">
+            <span><span x-text="Math.round(car.car_score)"></span>/100</span>
+            <span><span x-text="car.n_unique_views"></span>/10</span>
+            <span><span x-text="car.n_damages"></span> damages</span>
+          </div>
+          <div class="flex gap-1 flex-wrap mt-2.5">
+            <template x-for="cls in (car.damage_classes||'').split(',').filter(Boolean)">
+              <span class="text-[10px] px-2 py-0.5 rounded-md bg-white/[0.06] text-white/70 flex items-center gap-1.5">
+                <span class="label-color" :class="cls"></span>
+                <span x-text="cls"></span>
+              </span>
+            </template>
+          </div>
+        </button>
+      </template>
+    </div>
+  </main>
+
+  <!-- ==== Car Detail View ==== -->
+  <main x-show="view === 'car' && selectedCar" class="max-w-[1400px] mx-auto px-7 py-8">
+    <!-- Breadcrumb -->
+    <button @click="view = 'cars'" class="text-sm text-white/50 hover:text-white mb-4 flex items-center gap-1.5">
+      ← Vehicles
+    </button>
+
+    <!-- Header -->
+    <div class="card p-6 mb-6">
+      <div class="flex items-start justify-between">
+        <div>
+          <div class="font-mono text-2xl font-bold tracking-tight" x-text="selectedCar?.car?.plate_original"></div>
+          <div class="text-sm text-white/50 mt-1">
+            Quality Score <span class="text-white font-medium" x-text="Math.round(selectedCar?.car?.car_score || 0)"></span>/100
+            ·
+            <span x-text="selectedCar?.images?.length"></span> photos
+            ·
+            <span x-text="selectedCar?.damage_cases?.length || 0"></span> damage cases
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Images grid -->
+    <div class="text-xs uppercase tracking-wider text-white/40 mb-3 font-medium">Photos · 8-Winkel-Aufnahmen</div>
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-10">
+      <template x-for="img in selectedCar?.images || []" :key="img.id">
+        <button @click="openImage(img.id)"
+                class="card overflow-hidden hover:scale-[1.02] active:scale-[1.01] text-left relative"
+                :class="img.is_hard_fail ? 'opacity-40' : ''">
+          <img :src="`/api/images/${img.id}/file`" class="w-full h-36 object-cover" loading="lazy">
+          <div class="p-2.5 text-xs">
+            <div class="font-medium text-white/90 text-[10px] truncate uppercase tracking-wider" x-text="img.view.replace(/EXTERIOR_|DIAGONAL_|TYRE_RIM_/, '').replaceAll('_', ' ')"></div>
+            <div class="text-white/40 flex justify-between mt-1 text-[10px]">
+              <span x-text="`Q ${Math.round(img.quality_score)}`"></span>
+              <span x-show="img.has_predictions?.['vertex_ai/gemini-3.1-pro'] || img.has_predictions?.['vertex_ai/gemini-3.1-pro#tiled']" class="text-orange-500 font-bold">●</span>
+            </div>
+          </div>
+        </button>
+      </template>
+    </div>
+
+    <!-- Damage Cases (Photos + Damage-Info zusammen) -->
+    <template x-if="(selectedCar?.damage_cases || []).length > 0 || selectedCar?.filter_stats?.enabled">
+      <div>
+        <div class="flex items-center justify-between mb-3">
+          <div class="text-xs uppercase tracking-wider text-white/40 font-medium">
+            Damage Cases
+            <span class="text-white/30 ml-2" x-text="`· ${(selectedCar?.damage_cases || []).length} Cases nach Filter`"></span>
+          </div>
+          <div class="text-[10px] text-white/30">Klick aufs Foto → groß</div>
+        </div>
+
+        <!-- Filter-Info-Banner -->
+        <template x-if="selectedCar?.filter_stats?.enabled">
+          <div class="card p-3 mb-4 text-[11px] flex items-center gap-3" style="border-left: 3px solid #ff5f00">
+            <div class="text-orange-400 font-semibold uppercase tracking-wider text-[10px]">Filter aktiv</div>
+            <div class="flex-1 text-white/60">
+              ohne Scheiben + Felgen ·
+              nur vor Foto-Zeitpunkt
+            </div>
+            <div class="text-white/40 font-mono">
+              <span class="text-white" x-text="selectedCar?.filter_stats?.kept"></span> gezeigt ·
+              <span class="text-red-400" x-text="selectedCar?.filter_stats?.filtered_out_by_group"></span> WIN/TYR raus ·
+              <span class="text-amber-400" x-text="selectedCar?.filter_stats?.filtered_out_by_time"></span> nach Foto raus
+            </div>
+          </div>
+        </template>
+
+        <div class="space-y-4">
+          <template x-for="dcase in selectedCar.damage_cases" :key="dcase.case_id">
+            <div class="card p-4">
+              <!-- Case-Header: ID + Damage-Summary -->
+              <div class="flex items-center justify-between mb-3 pb-3 border-b border-white/[0.06]">
+                <div class="flex items-center gap-3">
+                  <span class="text-[10px] font-mono text-white/40" x-text="`#${dcase.case_id.slice(0,8)}`"></span>
+                  <span class="font-semibold text-sm" x-text="damageSummary(dcase.damages)"></span>
+                </div>
+                <div class="text-[10px] text-white/30" x-text="`${dcase.photos.length} Fotos`"></div>
+              </div>
+
+              <!-- Damage-Details (Klassen-Badges mit Part + Side) -->
+              <template x-if="dcase.damages && dcase.damages.length > 0">
+                <div class="flex flex-wrap gap-1.5 mb-3">
+                  <template x-for="d in dcase.damages">
+                    <div class="inline-flex items-center gap-1.5 bg-white/[0.04] border border-white/[0.06] rounded-md px-2.5 py-1 text-[11px]">
+                      <span class="label-color" :class="d.master_class"></span>
+                      <span class="font-medium capitalize" x-text="d.master_class.replace('_', ' ')"></span>
+                      <span class="text-white/30">·</span>
+                      <span class="text-white/70" x-text="d.part"></span>
+                      <span class="text-white/30">·</span>
+                      <span class="text-white/50" x-text="d.side || '?'"></span>
+                      <span x-show="d.severity" class="text-white/30 text-[10px] ml-1" x-text="`(${d.severity})`"></span>
+                    </div>
+                  </template>
+                </div>
+              </template>
+
+              <!-- Foto-Grid pro Case -->
+              <div class="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                <template x-for="photo in dcase.photos" :key="photo.url">
+                  <button @click="openLightbox(photo)"
+                          class="overflow-hidden rounded-lg hover:scale-[1.05] active:scale-[1.02] text-left relative group transition">
+                    <img :src="photo.url" class="w-full h-24 object-cover" loading="lazy">
+                    <div class="px-2 py-1 text-[9px] text-white/60 truncate uppercase tracking-wider bg-black/40"
+                         x-text="photo.type.replace('DAMAGE_', '').replace('OVERVIEW_WITH_REGISTRATION', 'OVERVIEW').replace('_', ' ')"></div>
+                    <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition flex items-center justify-center">
+                      <div class="text-white text-xl opacity-0 group-hover:opacity-100 transition">🔍</div>
+                    </div>
+                  </button>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </template>
+  </main>
+
+  <!-- ==== Lightbox-Modal ==== -->
+  <div x-show="lightboxPhoto"
+       class="fixed inset-0 z-[60] flex items-center justify-center"
+       style="background: rgba(0,0,0,0.95); backdrop-filter: blur(20px)"
+       @click.self="closeLightbox()">
+
+    <!-- Close -->
+    <button @click="closeLightbox()"
+            class="absolute top-5 right-5 w-10 h-10 rounded-full glass flex items-center justify-center text-white hover:scale-110 transition z-10">
+      ✕
+    </button>
+
+    <!-- Prev -->
+    <button @click="prevLightbox()" x-show="lightboxIdx > 0"
+            class="absolute left-5 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full glass flex items-center justify-center text-white text-2xl hover:scale-110 transition z-10">
+      ‹
+    </button>
+
+    <!-- Next -->
+    <button @click="nextLightbox()" x-show="lightboxIdx < lightboxList.length - 1"
+            class="absolute right-5 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full glass flex items-center justify-center text-white text-2xl hover:scale-110 transition z-10">
+      ›
+    </button>
+
+    <!-- Image -->
+    <div class="flex flex-col items-center max-w-[95vw] max-h-[95vh]">
+      <img :src="lightboxPhoto?.url" class="max-w-full max-h-[88vh] object-contain rounded-xl shadow-2xl">
+      <!-- Caption -->
+      <div class="mt-4 glass px-5 py-3 rounded-xl flex items-center gap-3 text-sm">
+        <span class="font-mono text-white/60 text-xs" x-text="`Case ${lightboxPhoto?.case_id?.slice(0,8)}`"></span>
+        <span class="text-white/30">·</span>
+        <span class="font-medium text-white uppercase tracking-wider text-xs"
+              x-text="lightboxPhoto?.type?.replace('DAMAGE_', '').replace('OVERVIEW_WITH_REGISTRATION', 'OVERVIEW').replace('_', ' ')"></span>
+        <span class="text-white/30">·</span>
+        <span class="text-white/40 font-mono text-[10px]" x-text="`${lightboxIdx + 1}/${lightboxList.length}`"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==== Annotation Modal ==== -->
+  <div x-show="view === 'annotate' && selectedImage" class="fixed inset-0 z-50 flex flex-col" style="background: var(--bg-0)">
+
+    <!-- Header -->
+    <div class="glass-strong border-b border-white/[0.06] px-5 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-4">
+        <button @click="closeAnnotation()" class="text-sm text-white/60 hover:text-white transition">← Back</button>
+        <div class="h-5 w-px bg-white/10"></div>
+        <span class="font-mono text-sm font-semibold" x-text="selectedCar?.car?.plate_original"></span>
+        <span class="text-[11px] text-white/50 uppercase tracking-wider font-medium" x-text="selectedImage?.view?.replace(/EXTERIOR_|DIAGONAL_|TYRE_RIM_/, '').replaceAll('_', ' ')"></span>
+      </div>
+      <div class="flex items-center gap-2">
+        <button @click="prevImage()" class="btn-ghost">← Prev</button>
+        <button @click="nextImage()" class="btn-ghost">Next →</button>
+      </div>
+    </div>
+
+    <!-- Main -->
+    <div class="flex-1 flex overflow-hidden">
+
+      <!-- Canvas Area -->
+      <div class="flex-1 canvas-area flex items-center justify-center overflow-hidden relative">
+        <div id="konva-container"></div>
+
+        <!-- Info Chip -->
+        <div class="floating info-chip" x-show="predictions.gemini || predictions.flash">
+          <span x-show="predictions.gemini" class="flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full" style="background:#ef4444"></span>
+            <span class="font-semibold tabular-nums" x-text="predictions.gemini?.length || 0"></span>
+            <span class="text-white/50 text-xs">Pro</span>
+          </span>
+          <span x-show="predictions.gemini && predictions.flash" class="text-white/20 mx-1">·</span>
+          <span x-show="predictions.flash" class="flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full" style="background:#3b82f6"></span>
+            <span class="font-semibold tabular-nums" x-text="predictions.flash?.length || 0"></span>
+            <span class="text-white/50 text-xs">Flash</span>
+          </span>
+          <span x-show="predMode.gemini === 'multi-scale-10x' || predMode.flash === 'multi-scale-10x'"
+                class="ml-2 px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 text-[10px] font-medium uppercase tracking-wider">Tile</span>
+        </div>
+
+        <!-- Zoom Overlay -->
+        <div class="floating zoom-overlay">
+          <button @click="zoomBy(1/1.3)" title="Zoom out">−</button>
+          <span class="zoom-pct" x-text="Math.round((currentScale/initialScale)*100) + '%'"></span>
+          <button @click="zoomBy(1.3)" title="Zoom in">+</button>
+          <div class="w-px h-5 bg-white/10 mx-1"></div>
+          <button @click="resetZoom()" title="Reset">⌂</button>
+        </div>
+      </div>
+
+      <!-- Sidebar -->
+      <aside class="w-[340px] glass-strong border-l border-white/[0.06] overflow-y-auto">
+        <div class="p-5 space-y-4">
+
+          <!-- Section: Mode -->
+          <div class="space-y-2">
+            <div class="text-[10px] uppercase tracking-[0.08em] text-white/40 font-semibold px-1">Analysis Mode</div>
+            <label class="toggle-card card flex items-center gap-3 p-3"
+                   :class="tileMode ? 'active' : ''">
+              <input type="checkbox" x-model="tileMode" class="w-4 h-4 accent-orange-500 cursor-pointer">
+              <div class="flex-1">
+                <div class="text-sm font-medium">Multi-Scale Tiles</div>
+                <div class="text-[11px] text-white/50">3×3 high-res tiles · 9 parallel calls</div>
+              </div>
+            </label>
+          </div>
+
+          <!-- Section: Analyze Buttons -->
+          <div class="space-y-2">
+            <!-- Gemini 3.1 Pro (rot) -->
+            <button @click="runModel('gemini')" :disabled="loadingPred.gemini"
+                    class="w-full py-3 px-4 rounded-xl text-white font-semibold transition disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg"
+                    style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); box-shadow: 0 8px 24px -6px rgba(239,68,68,0.4)">
+              <span x-show="!loadingPred.gemini" class="flex items-center gap-2 text-sm">
+                <span class="w-2 h-2 bg-white rounded-full"></span>
+                Gemini 3.1 Pro
+              </span>
+              <span x-show="loadingPred.gemini" class="loading-pulse text-sm">Pro analyzing...</span>
+            </button>
+
+            <!-- Gemini 3.5 Flash (blau) -->
+            <button @click="runModel('flash')" :disabled="loadingPred.flash"
+                    class="w-full py-3 px-4 rounded-xl text-white font-semibold transition disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg"
+                    style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); box-shadow: 0 8px 24px -6px rgba(59,130,246,0.4)">
+              <span x-show="!loadingPred.flash" class="flex items-center gap-2 text-sm">
+                <span class="w-2 h-2 bg-white rounded-full"></span>
+                Gemini 3.5 Flash
+              </span>
+              <span x-show="loadingPred.flash" class="loading-pulse text-sm">Flash analyzing...</span>
+            </button>
+
+            <!-- Beide -->
+            <button @click="runBoth()" :disabled="loadingPred.gemini || loadingPred.flash"
+                    class="w-full py-2.5 px-4 rounded-xl border border-white/15 text-white/80 hover:bg-white/[0.05] transition text-sm font-medium disabled:opacity-50">
+              ⚡ Beide gleichzeitig
+            </button>
+          </div>
+
+          <!-- Side-by-Side Comparison Metrics -->
+          <div x-show="predLatency.gemini || predLatency.flash" class="space-y-2">
+            <div class="text-[10px] uppercase tracking-[0.08em] text-white/40 font-semibold px-1">Vergleich</div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <!-- Pro -->
+              <div class="card p-3" style="border-left: 3px solid #ef4444">
+                <div class="text-[10px] text-red-400 font-semibold mb-1">PRO</div>
+                <div class="flex items-baseline gap-1">
+                  <span class="text-lg font-semibold tabular-nums" x-text="predLatency.gemini || '—'"></span>
+                  <span class="text-white/40 text-xs">s</span>
+                </div>
+                <div class="text-[10px] text-white/40 mt-1" x-text="predMode.gemini || ''"></div>
+                <div x-show="predCachedAt.gemini" class="text-[9px] text-white/30 mt-1" x-text="formatTimeAgo(predCachedAt.gemini)"></div>
+                <div x-show="predictions.gemini" class="mt-2 pt-2 border-t border-white/[0.06] text-[11px]">
+                  <span class="font-semibold tabular-nums" x-text="predictions.gemini?.length"></span>
+                  <span class="text-white/40 ml-1">detections</span>
+                </div>
+              </div>
+              <!-- Flash -->
+              <div class="card p-3" style="border-left: 3px solid #3b82f6">
+                <div class="text-[10px] text-blue-400 font-semibold mb-1">FLASH</div>
+                <div class="flex items-baseline gap-1">
+                  <span class="text-lg font-semibold tabular-nums" x-text="predLatency.flash || '—'"></span>
+                  <span class="text-white/40 text-xs">s</span>
+                </div>
+                <div class="text-[10px] text-white/40 mt-1" x-text="predMode.flash || ''"></div>
+                <div x-show="predCachedAt.flash" class="text-[9px] text-white/30 mt-1" x-text="formatTimeAgo(predCachedAt.flash)"></div>
+                <div x-show="predictions.flash" class="mt-2 pt-2 border-t border-white/[0.06] text-[11px]">
+                  <span class="font-semibold tabular-nums" x-text="predictions.flash?.length"></span>
+                  <span class="text-white/40 ml-1">detections</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Display Toggles -->
+          <div class="space-y-1.5">
+            <label class="toggle-card card flex items-center gap-3 p-2.5 cursor-pointer text-sm">
+              <input type="checkbox" x-model="showPreds.gemini" @change="redraw()" class="w-4 h-4 accent-red-500 cursor-pointer">
+              <span class="w-2 h-2 rounded-full" style="background:#ef4444"></span>
+              <span class="flex-1">Pro-BBoxes</span>
+              <span x-show="predictions.gemini" class="text-white/40 text-xs tabular-nums" x-text="predictions.gemini.length"></span>
+            </label>
+            <label class="toggle-card card flex items-center gap-3 p-2.5 cursor-pointer text-sm">
+              <input type="checkbox" x-model="showPreds.flash" @change="redraw()" class="w-4 h-4 accent-blue-500 cursor-pointer">
+              <span class="w-2 h-2 rounded-full" style="background:#3b82f6"></span>
+              <span class="flex-1">Flash-BBoxes</span>
+              <span x-show="predictions.flash" class="text-white/40 text-xs tabular-nums" x-text="predictions.flash.length"></span>
+            </label>
+          </div>
+
+          <!-- Detections — pro Modell -->
+          <template x-for="model in ['gemini', 'flash']">
+            <template x-if="predictions[model] && predictions[model].length > 0">
+              <div class="space-y-2">
+                <div class="flex items-center justify-between">
+                  <div class="text-[10px] uppercase tracking-[0.08em] font-semibold px-1"
+                       :style="`color: ${MODEL_COLOR[model]}`"
+                       x-text="MODEL_LABEL[model]"></div>
+                  <span class="text-[10px] text-white/40 font-mono tabular-nums" x-text="predictions[model].length"></span>
+                </div>
+                <div class="space-y-1.5">
+                  <template x-for="(d, idx) in predictions[model]">
+                    <div class="card p-3 text-xs border-l-2"
+                         :style="`border-left-color: ${d._is_cluster ? '#fbbf24' : MODEL_COLOR[model]}`">
+                      <div class="flex items-baseline justify-between mb-1">
+                        <div class="flex items-center gap-1.5">
+                          <span class="label-color" :class="d.label"></span>
+                          <span class="font-semibold capitalize" x-text="d.label.replace('_', ' ')"></span>
+                          <span class="text-white/40 tabular-nums" x-text="`${Math.round((d.confidence||0)*100)}%`"></span>
+                        </div>
+                        <span class="text-white/30 text-[10px] font-mono" x-text="`#${idx+1}`"></span>
+                      </div>
+                      <div x-show="d._is_cluster" class="text-amber-400 text-[10px]" x-text="`⚠ Cluster (${d._cluster_size})`"></div>
+                      <div x-show="d.reasoning && !d._is_cluster" class="text-white/50 leading-relaxed text-[11px] mt-1" x-text="d.reasoning"></div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </template>
+
+          <!-- Shortcuts -->
+          <details class="text-xs text-white/40 group">
+            <summary class="cursor-pointer hover:text-white/80 transition text-[10px] uppercase tracking-[0.08em] font-semibold px-1 list-none flex items-center justify-between">
+              <span>Shortcuts</span>
+              <span class="text-white/30 group-open:rotate-180 transition">⌄</span>
+            </summary>
+            <ul class="space-y-2 pt-3 px-1">
+              <li class="flex items-center justify-between"><span>Pro analyze</span><kbd>G</kbd></li>
+              <li class="flex items-center justify-between"><span>Flash analyze</span><kbd>F</kbd></li>
+              <li class="flex items-center justify-between"><span>Beide</span><kbd>B</kbd></li>
+              <li class="flex items-center justify-between"><span>Toggle tile</span><kbd>T</kbd></li>
+              <li class="flex items-center justify-between"><span>Zoom</span><kbd>Wheel</kbd></li>
+              <li class="flex items-center justify-between"><span>Prev / Next</span><span><kbd>←</kbd> <kbd>→</kbd></span></li>
+            </ul>
+          </details>
+        </div>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

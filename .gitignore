@@ -1,0 +1,114 @@
+# ─────────────────────────────────────────────────────────
+# Secrets — never commit
+# ─────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+local.properties
+**/local.properties
+
+# ─────────────────────────────────────────────────────────
+# Data — too large + sometimes contains PII
+# ─────────────────────────────────────────────────────────
+exterior_photos/
+damage_photos/
+damage_cases.json
+photos_export.json
+photos_*.json
+*.parquet
+
+# Scanner-Export (sessions pulled via adb pull)
+scanner-export/
+SixtScanner/
+
+# Test cases (local image fixtures, not for repo)
+Test cases Damage detection*/
+test_cases/
+
+# Label-Studio instance data
+pipeline/labelstudio/ls_data/
+
+# Quality-pipeline generated reports (regenerable from scripts)
+pipeline/quality/*.html
+pipeline/quality/*.json
+pipeline/quality/*.parquet
+
+# ─────────────────────────────────────────────────────────
+# Python
+# ─────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ─────────────────────────────────────────────────────────
+# Annotation-Tool SQLite cache (regenerable)
+# ─────────────────────────────────────────────────────────
+pipeline/annotation_tool/backend/data/*.db
+pipeline/annotation_tool/backend/data/*.db-journal
+pipeline/annotation_tool/backend/data/*.db-wal
+pipeline/annotation_tool/backend/data/*.db-shm
+pipeline/annotation_tool/test_predictions_report.html
+
+# ─────────────────────────────────────────────────────────
+# Android / Gradle
+# ─────────────────────────────────────────────────────────
+*.iml
+.gradle/
+**/.gradle/
+build/
+**/build/
+captures/
+.externalNativeBuild/
+.cxx/
+output.json
+release/
+
+# Android-Studio / IntelliJ
+.idea/
+*.iws
+*.ipr
+
+# APK / Bundle outputs
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Keystores (NEVER commit)
+*.jks
+*.keystore
+
+# Android navigation
+.navigation/
+
+# ─────────────────────────────────────────────────────────
+# macOS / IDE noise
+# ─────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+.vscode/
+*.swp
+*.swo
+*~
+
+# ─────────────────────────────────────────────────────────
+# Project-internal scratch / generated
+# ─────────────────────────────────────────────────────────
+*.log
+*.tmp
+*.bak
+node_modules/

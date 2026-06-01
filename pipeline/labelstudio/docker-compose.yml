@@ -1,0 +1,55 @@
+services:
+  label-studio:
+    image: heartexlabs/label-studio:latest
+    container_name: ls_main
+    ports:
+      - "8080:8080"
+    environment:
+      - LABEL_STUDIO_DISABLE_SIGNUP_WITHOUT_LINK=false
+      - LABEL_STUDIO_USERNAME=admin@sixt.com
+      - LABEL_STUDIO_PASSWORD=${LABEL_STUDIO_PASSWORD:?set LABEL_STUDIO_PASSWORD env var before starting}
+      - LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED=true
+      - LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT=/label-studio/files
+    volumes:
+      - ./ls_data:/label-studio/data
+      - ../../exterior_photos:/label-studio/files/exterior_photos:ro
+    networks:
+      - ls_net
+
+  ml_gemini:
+    build: ./ml_backend
+    container_name: ls_ml_gemini
+    ports:
+      - "9090:9090"
+    environment:
+      - MODEL_NAME=vertex_ai/gemini-3.1-pro
+      - LABEL_NAME=gemini-3.1-pro
+      - LLM_GW_API_KEY=${LLM_GW_API_KEY}
+      - PORT=9090
+    volumes:
+      - ../../exterior_photos:/exterior_photos:ro
+    networks:
+      - ls_net
+    depends_on:
+      - label-studio
+
+  ml_openai:
+    build: ./ml_backend
+    container_name: ls_ml_openai
+    ports:
+      - "9091:9091"
+    environment:
+      - MODEL_NAME=gpt-5.5
+      - LABEL_NAME=gpt-5.5
+      - LLM_GW_API_KEY=${LLM_GW_API_KEY}
+      - PORT=9091
+    volumes:
+      - ../../exterior_photos:/exterior_photos:ro
+    networks:
+      - ls_net
+    depends_on:
+      - label-studio
+
+networks:
+  ls_net:
+    driver: bridge
