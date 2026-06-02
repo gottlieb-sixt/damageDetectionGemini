@@ -23,13 +23,19 @@ from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
-import cv2
-import numpy as np
-import torch
 from dotenv import load_dotenv
 from openai import OpenAI
 from PIL import Image
 from pydantic import BaseModel
+
+try:
+    import cv2
+    import numpy as np
+    import torch
+except ImportError:
+    cv2 = None
+    np = None
+    torch = None
 
 # .env aus dem annotation_tool/ Root laden
 load_dotenv(Path(__file__).parent.parent / ".env")
@@ -83,12 +89,12 @@ GATEWAY_URL = "https://llm.orange.sixt.com/v1"
 GATEWAY_KEY = os.environ.get("LLM_GW_API_KEY", "")
 MODELS = {
     "gemini": "vertex_ai/gemini-3.1-pro",
-    "flash":  "vertex_ai/gemini-3.5-flash",
+    "flash":  "vertex_ai/gemini-3-flash",
 }
 llm = OpenAI(base_url=GATEWAY_URL, api_key=GATEWAY_KEY) if GATEWAY_KEY else None
 
 # === SAM (lazy-loaded) ===
-SAM_DEVICE = "mps" if torch.backends.mps.is_available() else "cpu"
+SAM_DEVICE = "mps" if torch and torch.backends.mps.is_available() else "cpu"
 _sam_model = None
 _sam_processor = None
 
@@ -96,6 +102,8 @@ _sam_processor = None
 def get_sam():
     """Lazy-load SAM v1 base (~375MB DL beim ersten Mal)."""
     global _sam_model, _sam_processor
+    if torch is None or cv2 is None or np is None:
+        raise HTTPException(503, "SAM dependencies not installed: torch, opencv-python, numpy")
     if _sam_model is None:
         from transformers import SamModel, SamProcessor
         print(f"[SAM] Lade facebook/sam-vit-base auf {SAM_DEVICE} ...")
