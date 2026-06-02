@@ -608,22 +608,7 @@ VIEW_DESC = {
 
 
 def build_prompt(view):
-    desc = VIEW_DESC.get(view, view)
-    return f"""You're inspecting a rental car. The photo shows: {desc}.
-
-Find ALL visible damages on the car.
-Classes: scratch | stone_chip | dent | crack | missing | major | other.
-
-For each damage output a tight bounding box [ymin, xmin, ymax, xmax] in 0-1000 normalized coords.
-
-Respond ONLY with JSON:
-{{
-  "damages": [
-    {{"bbox_2d": [ymin, xmin, ymax, xmax], "label": "scratch", "confidence": 0.85, "severity": "medium", "reasoning": "Brief description"}}
-  ]
-}}
-
-If no damages visible, return {{"damages": []}}."""
+    return build_prompt_cot(view)
 
 
 def build_prompt_cot(view):
@@ -656,9 +641,6 @@ The photo shows: {desc}.
   These look like clusters of small dark spots/streaks. They are DIRT, NOT stone chips, NOT scratches.
   → If you see a cluster of brown/dark spots on or near a wheel/rim/lower bumper, it's road dirt. SKIP IT.
 - **🟫 General road salt residue / dust film**: matte gray-white deposits on lower body. Cosmetic dirt, not damage.
-
-# Sanity Check
-If you find yourself marking MORE THAN 5 stone_chips in a tight area, STOP and reconsider — that's almost certainly a single light reflection, not damage. A real car rarely has more than 3-5 visible stone chips in one panel.
 
 # Inspection Procedure (THINK step-by-step)
 1. **Identify ALL visible panels/parts**: bumper, hood, fenders, doors, windscreen, mirrors, tires, rims, lights, etc.

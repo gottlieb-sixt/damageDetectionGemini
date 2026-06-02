@@ -32,25 +32,31 @@ The photo shows: $desc.
 - **other**: graffiti, deep dirt requiring documentation.
 
 # CRITICAL: What is NOT damage (do NOT mark these)
-- Light reflections and highlights: glossy paint shows bright streaks where light hits — these are NORMAL.
-- Shadow patterns: dark areas where panels curve are NORMAL, not dents.
-- Dust, water spots, dirt smudges: these are not paint damage.
-- Color gradients along panel edges: due to lighting, not damage.
-- Pattern of similar "marks" following a curve or line: this is almost certainly a REFLECTION on the hood/roof/door, not 20 stone chips.
-- Reflections of the surrounding environment (other cars, ceiling lights, pillars) in the paint.
-- SPLASH DIRT / MUD SPATTER / ROAD GRIME: brown/gray/black spatter patterns — especially on wheels, rims, tires, rear bumper, rear fenders, lower side skirts. These are DIRT, NOT damage.
-- General road salt residue / dust film: matte gray-white deposits on lower body. Cosmetic dirt, not damage.
+- **Light reflections and highlights**: glossy paint shows bright streaks where light hits — these are NORMAL.
+- **Shadow patterns**: dark areas where panels curve are NORMAL, not dents.
+- **Dust, water spots, dirt smudges**: these are not paint damage.
+- **Color gradients along panel edges**: due to lighting, not damage.
+- **Pattern of similar "marks" following a curve or line**: this is almost certainly a REFLECTION on the hood/roof/door, not 20 stone chips.
+- **Reflections of the surrounding environment** (other cars, ceiling lights, pillars) in the paint.
+- **SPLASH DIRT / MUD SPATTER / ROAD GRIME**: brown/gray/black spatter patterns — especially on:
+  * Wheels, rims, tires (very common — almost every car has this)
+  * Rear bumper, rear fenders (kicked up while driving)
+  * Lower side skirts and rocker panels
+  * Behind the wheels (mud trails)
+  These look like clusters of small dark spots/streaks. They are DIRT, NOT stone chips, NOT scratches.
+  If you see a cluster of brown/dark spots on or near a wheel/rim/lower bumper, it's road dirt. SKIP IT.
+- **General road salt residue / dust film**: matte gray-white deposits on lower body. Cosmetic dirt, not damage.
 
 # Sanity Check
-If you find yourself marking MORE THAN 5 stone_chips in a tight area, STOP and reconsider — that's almost certainly a single light reflection, not damage.
+If you find yourself marking MORE THAN 5 stone_chips in a tight area, STOP and reconsider — that's almost certainly a single light reflection, not damage. A real car rarely has more than 3-5 visible stone chips in one panel.
 
 # Inspection Procedure (THINK step-by-step)
-1. Identify ALL visible panels/parts: bumper, hood, fenders, doors, windscreen, mirrors, tires, rims, lights, etc.
-2. For EACH panel: first look at where LIGHT is coming from. Mentally map highlights and shadows.
-3. For wheels/rims/lower bumpers/rear panels: ask yourself "is this BROWN/GRAY DIRT or is this real damage?".
-4. Then look for ACTUAL damage with paint disruption — not just brightness variation, not dirt.
-5. Only mark with confidence > 0.7 if you're sure it's not a reflection or dirt.
-6. Cap yourself at ~5-10 damages per panel maximum.
+1. **Identify ALL visible panels/parts**: bumper, hood, fenders, doors, windscreen, mirrors, tires, rims, lights, etc.
+2. **For EACH panel**: first look at where LIGHT is coming from. Mentally map highlights and shadows.
+3. **For wheels/rims/lower bumpers/rear panels**: ask yourself "is this BROWN/GRAY DIRT or is this real damage?" Dirt is matte, has no sharp edges, often forms spray patterns. Real damage has clear paint disruption.
+4. **Then look for ACTUAL damage with paint disruption** — not just brightness variation, not dirt.
+5. **Only mark with confidence > 0.7** if you're sure it's not a reflection or dirt.
+6. **Cap yourself at ~5-10 damages per panel maximum**. If you see more, it's likely a reflection or dirt pattern.
 
 # Output Format
 Output ONLY this JSON (no markdown):
@@ -63,14 +69,14 @@ Output ONLY this JSON (no markdown):
       "confidence": 0.85,
       "severity": "light|medium|severe",
       "panel": "driver_door",
-      "reasoning": "8cm diagonal scratch with visible paint disruption"
+      "reasoning": "8cm diagonal scratch on driver door with visible paint disruption — verified NOT a reflection because the line is darker than surrounding paint"
     }
   ]
 }
 
 bbox_2d MUST be in 0-1000 normalized [ymin, xmin, ymax, xmax].
 If no real damages visible, return {"panels_scanned": [...], "damages": []}.
-QUALITY > QUANTITY."""
+QUALITY > QUANTITY. Fewer, high-confidence detections are better than many false positives."""
     }
 
     fun tileSuffix(view: String): String {
