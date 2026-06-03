@@ -283,14 +283,15 @@
       <template x-for="car in cars" :key="car.plate_safe">
         <button @click="loadCar(car.plate_safe)"
                 class="card p-4 text-left hover:scale-[1.015] active:scale-[1.005] group"
-                :class="car.is_test ? 'card-strong border-orange-500/40' : ''">
+                :class="car.is_branch_picture ? 'card-strong border-blue-500/60' : (car.is_test ? 'card-strong border-orange-500/40' : '')">
           <div class="flex items-center justify-between mb-2">
             <div class="font-mono font-semibold text-sm tracking-tight" x-text="car.plate_original"></div>
-            <span x-show="car.is_test" class="text-[10px] font-semibold bg-orange-500 text-white px-2 py-0.5 rounded-md">TEST</span>
+            <span x-show="car.is_branch_picture" class="text-[10px] font-semibold bg-blue-500 text-white px-2 py-0.5 rounded-md">APP</span>
+            <span x-show="car.is_test && !car.is_branch_picture" class="text-[10px] font-semibold bg-orange-500 text-white px-2 py-0.5 rounded-md">TEST</span>
           </div>
           <div class="flex items-center gap-3 text-[11px] text-white/40 font-mono">
             <span><span x-text="Math.round(car.car_score)"></span>/100</span>
-            <span><span x-text="car.n_unique_views"></span>/10</span>
+            <span><span x-text="car.n_unique_views"></span><span x-text="car.is_branch_picture ? '/12' : '/10'"></span></span>
             <span><span x-text="car.n_damages"></span> damages</span>
           </div>
           <div class="flex gap-1 flex-wrap mt-2.5">
@@ -346,6 +347,21 @@
           </div>
         </button>
       </template>
+      <template x-for="photo in selectedCar?.branch_pictures || []" :key="photo.url">
+        <button @click="openImage(photo.image_id)"
+                class="card overflow-hidden hover:scale-[1.02] active:scale-[1.01] text-left relative border-blue-500/35">
+          <img :src="photo.url" class="w-full h-36 object-cover" loading="lazy">
+          <div class="absolute top-2 left-2 text-[9px] font-semibold bg-blue-500 text-white px-2 py-0.5 rounded-md">APP</div>
+          <div class="p-2.5 text-xs">
+            <div class="font-medium text-white/90 text-[10px] truncate uppercase tracking-wider"
+                 x-text="photo.type.replace('APP_', '').replaceAll('_', ' ')"></div>
+            <div class="text-white/40 flex justify-between mt-1 text-[10px]">
+              <span>Branch Picture</span>
+              <span x-text="photo.session_id?.slice(-6)"></span>
+            </div>
+          </div>
+        </button>
+      </template>
     </div>
 
     <!-- Damage Cases (Photos + Damage-Info zusammen) -->
@@ -382,10 +398,27 @@
               <div class="flex items-center justify-between mb-3 pb-3 border-b border-white/[0.06]">
                 <div class="flex items-center gap-3">
                   <span class="text-[10px] font-mono text-white/40" x-text="`#${dcase.case_id.slice(0,8)}`"></span>
+                  <span x-show="dcase.source === 'mobile_app'"
+                        class="text-[10px] font-semibold bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded-md">
+                    APP SCAN
+                  </span>
                   <span class="font-semibold text-sm" x-text="damageSummary(dcase.damages)"></span>
                 </div>
                 <div class="text-[10px] text-white/30" x-text="`${dcase.photos.length} Fotos`"></div>
               </div>
+
+              <template x-if="dcase.source === 'mobile_app'">
+                <div class="mb-3 text-[11px] text-white/45 font-mono">
+                  <span x-text="dcase.summary?.session_id"></span>
+                  <span> · </span>
+                  <span x-text="`${dcase.summary?.n_damages || 0} detections`"></span>
+                  <span> · </span>
+                  <span x-text="`${dcase.summary?.n_errors || 0} errors`"></span>
+                  <span> · </span>
+                  <span x-text="dcase.summary?.model || 'model?'"></span>
+                  <span x-show="dcase.summary?.tile_mode"> · tile</span>
+                </div>
+              </template>
 
               <!-- Damage-Details (Klassen-Badges mit Part + Side) -->
               <template x-if="dcase.damages && dcase.damages.length > 0">
@@ -667,6 +700,6 @@
   </div>
 </div>
 
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=branch-images-2"></script>
 </body>
 </html>

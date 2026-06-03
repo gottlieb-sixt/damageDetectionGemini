@@ -4,6 +4,17 @@ import com.sixt.damagescanner.llm.LlmGatewayClient
 import org.json.JSONArray
 import org.json.JSONObject
 
+/** One physical HTTP attempt. A logical call can contain retries. */
+data class CallAttemptTelemetry(
+    val attempt: Int,
+    val httpStatus: Int,
+    val bytesSent: Long,
+    val bytesReceived: Long,
+    val latencyMs: Long,
+    val error: String?,
+    val willRetry: Boolean,
+)
+
 /** One HTTP round-trip to the LLM gateway (single photo = 1 call, tile-mode = 9). */
 data class CallTelemetry(
     val tileIdx: Int?,           // null for single-mode, 0..8 for tile-mode
@@ -15,6 +26,7 @@ data class CallTelemetry(
     val completionTokens: Int,
     val error: String?,
     val damages: List<LlmGatewayClient.Damage>,
+    val attempts: List<CallAttemptTelemetry> = emptyList(),
 )
 
 /** Everything about one captured photo (one view). */
@@ -30,6 +42,7 @@ data class PhotoTelemetry(
     val modelId: String,         // "vertex_ai/gemini-3.5-flash" etc.
     val tileMode: Boolean,
     val maxSideSetting: Int,     // chosen pill value (1280 / 2048 / 4000)
+    val autoRetryCount: Int,
     val calls: List<CallTelemetry>,
     val nPreNms: Int,
     val nPostNms: Int,
@@ -44,10 +57,21 @@ data class PhotoTelemetry(
     val totalCompletionTokens: Int get() = calls.sumOf { it.completionTokens }
     val totalUsd: Double get() = Pricing.usd(modelId, totalPromptTokens, totalCompletionTokens)
     val hadError: Boolean get() = calls.any { it.error != null }
+    val retryCount: Int get() = calls.sumOf { call -> call.attempts.count { it.attempt > 1 } }
 }
 
 /** JSON serialization helpers — uses org.json to stay consistent with existing code. */
 object TelemetryJson {
+
+    fun attemptToJson(a: CallAttemptTelemetry): JSONObject = JSONObject().apply {
+        put("attempt", a.attempt)
+        put("http_status", a.httpStatus)
+        put("bytes_sent", a.bytesSent)
+        put("bytes_received", a.bytesReceived)
+        put("latency_ms", a.latencyMs)
+        put("error", a.error ?: JSONObject.NULL)
+        put("will_retry", a.willRetry)
+    }
 
     fun callToJson(c: CallTelemetry): JSONObject = JSONObject().apply {
         put("tile_idx", c.tileIdx ?: JSONObject.NULL)
@@ -58,6 +82,8 @@ object TelemetryJson {
         put("prompt_tokens", c.promptTokens)
         put("completion_tokens", c.completionTokens)
         put("error", c.error ?: JSONObject.NULL)
+        put("retry_count", c.attempts.count { it.attempt > 1 })
+        put("attempts", JSONArray().apply { c.attempts.forEach { put(attemptToJson(it)) } })
     }
 
     fun damageToJson(d: LlmGatewayClient.Damage): JSONObject = JSONObject().apply {
@@ -84,6 +110,7 @@ object TelemetryJson {
         put("model_id", p.modelId)
         put("tile_mode", p.tileMode)
         put("max_side_setting", p.maxSideSetting)
+        put("auto_retry_count", p.autoRetryCount)
         put("n_calls", p.calls.size)
         put("calls", JSONArray().apply { p.calls.forEach { put(callToJson(it)) } })
         put("totals", JSONObject().apply {
@@ -93,6 +120,7 @@ object TelemetryJson {
             put("prompt_tokens", p.totalPromptTokens)
             put("completion_tokens", p.totalCompletionTokens)
             put("usd_estimated", p.totalUsd)
+            put("retry_count", p.retryCount)
         })
         put("analysis", JSONObject().apply {
             put("n_pre_nms", p.nPreNms)

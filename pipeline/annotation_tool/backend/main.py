@@ -50,6 +50,7 @@ PHOTOS_EXPORT = ROOT / "photos_export.json"
 STRATIFIED_CARS = ROOT / "pipeline" / "quality" / "stratified_cars.parquet"
 STRATIFIED_IMAGES = ROOT / "pipeline" / "quality" / "stratified_images.parquet"
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
+ADB_PULLS_DIR = ROOT / "adb_pulls"
 
 # Damage-Filter-Konfiguration
 EXCLUDED_DAMAGE_GROUPS = {"WINDOWS", "TYRES"}
@@ -83,6 +84,175 @@ def get_plate_photo_ts():
         if max_ts > 0:
             _plate_photo_ts[plate] = max_ts
     return _plate_photo_ts
+
+
+def latest_adb_pull_dir() -> Path | None:
+    """Return newest pulled SixtScanner folder from Android app logs."""
+    if not ADB_PULLS_DIR.exists():
+        return None
+    pulls = [p for p in ADB_PULLS_DIR.glob("SixtScanner_*") if p.is_dir()]
+    return max(pulls, key=lambda p: p.stat().st_mtime) if pulls else None
+
+
+def mobile_scan_cases(limit: int = 8) -> list[dict]:
+    """Expose latest Android app scan sessions as case-like cards in the UI."""
+    pull_dir = latest_adb_pull_dir()
+    if not pull_dir:
+        return []
+
+    cases = []
+    session_dirs = sorted([p for p in pull_dir.iterdir() if p.is_dir()], reverse=True)
+    for session_dir in session_dirs:
+        photos_path = session_dir / "photos.json"
+        if not photos_path.exists():
+            continue
+        try:
+            photos_log = json.loads(photos_path.read_text())
+        except Exception:
+            continue
+
+        session = {}
+        session_path = session_dir / "session.json"
+        if session_path.exists():
+            try:
+                session = json.loads(session_path.read_text())
+            except Exception:
+                session = {}
+
+        damages = []
+        photos = []
+        for p in sorted(photos_log, key=lambda x: x.get("idx", 0)):
+            view = p.get("view", "UNKNOWN")
+            filename = p.get("original_file")
+            if filename and (session_dir / filename).exists():
+                image_id = f"branch::{pull_dir.name}::{session_dir.name}::{filename}"
+                photos.append({
+                    "type": f"APP_{view}",
+                    "photo_id": filename,
+                    "image_id": image_id,
+                    "url": f"/api/mobile_scan_photos/{pull_dir.name}/{session_dir.name}/{filename}",
+                    "case_id": session_dir.name,
+                })
+
+            for idx, d in enumerate(p.get("analysis", {}).get("damages", []) or []):
+                label = d.get("label", "other")
+                damages.append({
+                    "damage_id": f"{session_dir.name}:{view}:{idx}",
+                    "type": label,
+                    "master_class": label if label in DAMAGE_CLASSES else "other",
+                    "part": d.get("panel") or view,
+                    "side": view,
+                    "severity": d.get("severity") or "",
+                    "group": "APP_SCAN",
+                    "confidence": d.get("confidence"),
+                })
+
+        if not photos:
+            continue
+
+        ag = session.get("aggregates", {}) if isinstance(session, dict) else {}
+        cases.append({
+            "case_id": f"app_scan_{session_dir.name}",
+            "source": "mobile_app",
+            "status": session.get("status"),
+            "summary": {
+                "session_id": session_dir.name,
+                "pull_dir": pull_dir.name,
+                "n_photos": len(photos),
+                "n_damages": len(damages),
+                "n_errors": ag.get("n_errors"),
+                "model": session.get("session_settings", {}).get("model"),
+                "tile_mode": session.get("session_settings", {}).get("tile_mode"),
+            },
+            "damages": damages,
+            "photos": photos,
+        })
+        if len(cases) >= limit:
+            break
+
+    return cases
+
+
+def latest_branch_pictures() -> list[dict]:
+    """Return photos from the latest Android app scan for the exterior-photo grid."""
+    cases = mobile_scan_cases(limit=1)
+    if not cases:
+        return []
+    latest = cases[0]
+    return [
+        {
+            **photo,
+            "source": "mobile_app",
+            "session_id": latest.get("summary", {}).get("session_id"),
+            "n_damages": latest.get("summary", {}).get("n_damages", 0),
+        }
+        for photo in latest.get("photos", [])
+    ]
+
+
+def branch_picture_car_summary() -> dict | None:
+    cases = mobile_scan_cases(limit=1)
+    if not cases:
+        return None
+    latest = cases[0]
+    summary = latest.get("summary", {})
+    return {
+        "plate_safe": "BRANCH_PICTURE",
+        "plate_original": "BRANCH PICTURE",
+        "car_score": 100,
+        "n_unique_views": summary.get("n_photos", len(latest.get("photos", []))),
+        "n_damages": summary.get("n_damages", len(latest.get("damages", []))),
+        "damage_classes": "app_scan",
+        "is_test": 1,
+        "is_branch_picture": 1,
+        "n_images": summary.get("n_photos", len(latest.get("photos", []))),
+        "n_human_annos": 0,
+    }
+
+
+def branch_picture_car_detail() -> dict:
+    cases = mobile_scan_cases()
+    branch_pictures = latest_branch_pictures()
+    return {
+        "car": {
+            "plate_safe": "BRANCH_PICTURE",
+            "plate_original": "BRANCH PICTURE",
+            "car_score": 100,
+            "n_unique_views": len(branch_pictures),
+            "n_damages": sum(len(c.get("damages", [])) for c in cases),
+            "damage_classes": "app_scan",
+            "is_test": 1,
+            "is_branch_picture": 1,
+        },
+        "images": [],
+        "branch_pictures": branch_pictures,
+        "damage_cases": cases,
+        "filter_stats": {
+            "enabled": False,
+            "excluded_groups": [],
+            "filtered_out_by_group": 0,
+            "filtered_out_by_time": 0,
+            "kept": sum(len(c.get("damages", [])) for c in cases),
+            "photo_ts": None,
+        },
+    }
+
+
+def branch_image_path(image_id: str) -> tuple[Path, str, str, str]:
+    parts = image_id.split("::")
+    if len(parts) != 4 or parts[0] != "branch":
+        raise HTTPException(404, "Invalid branch image id")
+    _, pull_id, session_id, filename = parts
+    path = (ADB_PULLS_DIR / pull_id / session_id / filename).resolve()
+    root = ADB_PULLS_DIR.resolve()
+    if not str(path).startswith(str(root)) or not path.exists() or not path.is_file():
+        raise HTTPException(404, "Branch image not found")
+    return path, pull_id, session_id, filename
+
+
+def branch_view_from_filename(filename: str) -> str:
+    stem = Path(filename).stem
+    return re.sub(r"^\d+_", "", stem)
 
 # === LLM Gateway ===
 GATEWAY_URL = "https://llm.orange.sixt.com/v1"
@@ -394,11 +564,23 @@ def list_cars(limit: int = 100, offset: int = 0, has_damages: bool = True, only_
         # Test-Cars zuerst, dann nach Score
         q += " ORDER BY COALESCE(c.is_test, 0) DESC, c.car_score DESC LIMIT ? OFFSET ?"
         rows = conn.execute(q, (limit, offset)).fetchall()
-        return [dict(r) for r in rows]
+        cars = [dict(r) for r in rows]
+        branch_car = branch_picture_car_summary()
+        if branch_car and offset == 0:
+            insert_at = 1 if cars else 0
+            for idx, car in enumerate(cars):
+                if car.get("plate_safe") == "TEST_BMW":
+                    insert_at = idx + 1
+                    break
+            cars.insert(insert_at, branch_car)
+        return cars
 
 
 @app.get("/api/cars/{plate_safe}")
 def get_car(plate_safe: str):
+    if plate_safe == "BRANCH_PICTURE":
+        return branch_picture_car_detail()
+
     with get_db() as conn:
         car = conn.execute("SELECT * FROM cars WHERE plate_safe = ?", (plate_safe,)).fetchone()
         if not car:
@@ -499,13 +681,18 @@ def get_car(plate_safe: str):
                     })
                 damage_cases_full.append({
                     "case_id": cid,
+                    "source": "db_damage_case",
                     "damages": cases_meta[cid],
                     "photos": photos,
                 })
 
+        # Zusätzlich: aktuelle App-Scan-Sessions als Case-Karten daneben anzeigen.
+        damage_cases_full.extend(mobile_scan_cases())
+
         return {
             "car": dict(car),
             "images": images,
+            "branch_pictures": latest_branch_pictures(),
             "damage_cases": damage_cases_full,
             "filter_stats": {
                 "enabled": DAMAGE_FILTER_ENABLED,
@@ -527,7 +714,45 @@ def serve_damage_photo(plate_safe: str, case_id: str, filename: str):
     return FileResponse(path)
 
 
+@app.get("/api/mobile_scan_photos/{pull_id}/{session_id}/{filename}")
+def serve_mobile_scan_photo(pull_id: str, session_id: str, filename: str):
+    """Serve Android app scan photo from latest/local adb_pulls folder."""
+    path = (ADB_PULLS_DIR / pull_id / session_id / filename).resolve()
+    root = ADB_PULLS_DIR.resolve()
+    if not str(path).startswith(str(root)) or not path.exists() or not path.is_file():
+        raise HTTPException(404, "mobile scan photo not found")
+    return FileResponse(path)
+
+
 # === Images ===
+@app.get("/api/branch_images/file")
+def get_branch_image_file(image_id: str):
+    path, _, _, _ = branch_image_path(image_id)
+    return FileResponse(path)
+
+
+@app.get("/api/branch_images/meta")
+def get_branch_image_meta(image_id: str):
+    path, pull_id, session_id, filename = branch_image_path(image_id)
+    with Image.open(path) as img:
+        width, height = img.size
+    view = branch_view_from_filename(filename)
+    return {
+        "id": image_id,
+        "plate_safe": "BRANCH_PICTURE",
+        "plate_original": "BRANCH PICTURE",
+        "view": view,
+        "path": str(path),
+        "width": width,
+        "height": height,
+        "quality_score": 100,
+        "is_hard_fail": 0,
+        "is_branch_picture": True,
+        "pull_id": pull_id,
+        "session_id": session_id,
+    }
+
+
 @app.get("/api/images/{image_id}/file")
 def get_image_file(image_id: int):
     with get_db() as conn:
@@ -987,6 +1212,34 @@ def get_predictions_cached(image_id: int):
         return out
 
 
+@app.get("/api/branch_images/predictions_cached")
+def get_branch_predictions_cached(image_id: str):
+    # Branch pictures are file-backed Android logs, not DB images. We intentionally
+    # return no cache; the UI can run Pro/Flash with the same buttons as normal.
+    branch_image_path(image_id)
+    return {}
+
+
+@app.get("/api/branch_images/predictions")
+def get_branch_predictions(image_id: str, model: Optional[str] = None, force: bool = False, tiled: bool = False):
+    path, _, _, filename = branch_image_path(image_id)
+    view = branch_view_from_filename(filename)
+    results = {}
+    models_to_run = [MODELS[model]] if model and model in MODELS else list(MODELS.values())
+    for model_id in models_to_run:
+        try:
+            t0 = time.time()
+            if tiled:
+                parsed, usage = call_model_tiled(model_id, str(path), view)
+                latency = time.time() - t0
+            else:
+                parsed, latency, usage = call_model(model_id, str(path), view)
+            results[model_id] = parsed
+        except Exception as e:
+            results[model_id] = {"error": str(e)[:200]}
+    return results
+
+
 @app.get("/api/images/{image_id}/predictions")
 def get_predictions(image_id: int, model: Optional[str] = None, force: bool = False, tiled: bool = False):
     with get_db() as conn:
@@ -1096,6 +1349,32 @@ def stats():
 @app.get("/")
 def root():
     return HTMLResponse((FRONTEND_DIR / "index.html").read_text())
+
+
+def latest_branch_picture_report() -> Path:
+    reports = list(ADB_PULLS_DIR.glob("SixtScanner_*/scan_report.html"))
+    if not reports:
+        raise HTTPException(404, "No branch picture report found. Run an adb pull and generate scan_report.html first.")
+    return max(reports, key=lambda p: p.stat().st_mtime)
+
+
+@app.get("/branch-picture")
+def branch_picture():
+    report = latest_branch_picture_report()
+    html_text = report.read_text(encoding="utf-8")
+    # The generated report uses relative image paths. Serve those paths through
+    # /branch-picture-assets/ so the report works inside FastAPI as well.
+    html_text = html_text.replace("<head>", '<head>\n  <base href="/branch-picture-assets/">', 1)
+    return HTMLResponse(html_text)
+
+
+@app.get("/branch-picture-assets/{asset_path:path}")
+def branch_picture_asset(asset_path: str):
+    report_root = latest_branch_picture_report().parent.resolve()
+    target = (report_root / asset_path).resolve()
+    if not str(target).startswith(str(report_root)) or not target.exists() or not target.is_file():
+        raise HTTPException(404, "Asset not found")
+    return FileResponse(target)
 
 
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")

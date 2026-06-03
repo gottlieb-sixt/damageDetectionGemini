@@ -1,7 +1,9 @@
 package com.sixt.damagescanner.llm
 
 import com.sixt.damagescanner.logging.CallTelemetry
+import com.sixt.damagescanner.logging.CallAttemptTelemetry
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -92,63 +94,126 @@ object LlmGatewayClient {
             .post(requestBody)
             .build()
 
-        val t0 = System.currentTimeMillis()
-        try {
-            http.newCall(req).execute().use { resp ->
-                val respBytes = resp.body?.bytes() ?: ByteArray(0)
-                val latencyMs = System.currentTimeMillis() - t0
-                val text = String(respBytes, Charsets.UTF_8)
+        val attempts = mutableListOf<CallAttemptTelemetry>()
+        var lastFailure: CallTelemetry? = null
+        for (attempt in 0 until 3) {
+            val t0 = System.currentTimeMillis()
+            try {
+                val outcome = http.newCall(req).execute().use { resp ->
+                    val respBytes = resp.body?.bytes() ?: ByteArray(0)
+                    val latencyMs = System.currentTimeMillis() - t0
+                    val text = String(respBytes, Charsets.UTF_8)
 
-                if (!resp.isSuccessful) {
-                    return@withContext CallTelemetry(
-                        tileIdx = tileIdx,
-                        httpStatus = resp.code,
-                        bytesSent = bodyBytes.size.toLong(),
-                        bytesReceived = respBytes.size.toLong(),
-                        latencyMs = latencyMs,
-                        promptTokens = 0,
-                        completionTokens = 0,
-                        error = "HTTP ${resp.code}: ${text.take(300)}",
-                        damages = emptyList(),
-                    )
+                    if (!resp.isSuccessful) {
+                        val willRetry = attempt < 2 && (resp.code == 429 || resp.code >= 500)
+                        val error = "HTTP ${resp.code}: ${text.take(300)}"
+                        attempts += CallAttemptTelemetry(
+                            attempt = attempt + 1,
+                            httpStatus = resp.code,
+                            bytesSent = bodyBytes.size.toLong(),
+                            bytesReceived = respBytes.size.toLong(),
+                            latencyMs = latencyMs,
+                            error = error,
+                            willRetry = willRetry,
+                        )
+                        val failure = CallTelemetry(
+                            tileIdx = tileIdx,
+                            httpStatus = resp.code,
+                            bytesSent = attempts.sumOf { it.bytesSent },
+                            bytesReceived = attempts.sumOf { it.bytesReceived },
+                            latencyMs = attempts.sumOf { it.latencyMs },
+                            promptTokens = 0,
+                            completionTokens = 0,
+                            error = error,
+                            damages = emptyList(),
+                            attempts = attempts.toList(),
+                        )
+                        failure to willRetry
+                    } else {
+                        val root = JSONObject(text)
+                        val rawContent = root.optJSONArray("choices")
+                            ?.optJSONObject(0)
+                            ?.optJSONObject("message")
+                            ?.optString("content")
+                            .orEmpty()
+                        val damages = parseDamagesJson(rawContent)
+                        val usage = root.optJSONObject("usage")
+                        val pTok = usage?.optInt("prompt_tokens", 0) ?: 0
+                        val cTok = usage?.optInt("completion_tokens", 0) ?: 0
+                        attempts += CallAttemptTelemetry(
+                            attempt = attempt + 1,
+                            httpStatus = resp.code,
+                            bytesSent = bodyBytes.size.toLong(),
+                            bytesReceived = respBytes.size.toLong(),
+                            latencyMs = latencyMs,
+                            error = null,
+                            willRetry = false,
+                        )
+
+                        CallTelemetry(
+                            tileIdx = tileIdx,
+                            httpStatus = resp.code,
+                            bytesSent = attempts.sumOf { it.bytesSent },
+                            bytesReceived = attempts.sumOf { it.bytesReceived },
+                            latencyMs = attempts.sumOf { it.latencyMs },
+                            promptTokens = pTok,
+                            completionTokens = cTok,
+                            error = null,
+                            damages = damages,
+                            attempts = attempts.toList(),
+                        ) to false
+                    }
                 }
-
-                val root = JSONObject(text)
-                val rawContent = root.optJSONArray("choices")
-                    ?.optJSONObject(0)
-                    ?.optJSONObject("message")
-                    ?.optString("content")
-                    .orEmpty()
-                val damages = parseDamagesJson(rawContent)
-                val usage = root.optJSONObject("usage")
-                val pTok = usage?.optInt("prompt_tokens", 0) ?: 0
-                val cTok = usage?.optInt("completion_tokens", 0) ?: 0
-
-                CallTelemetry(
-                    tileIdx = tileIdx,
-                    httpStatus = resp.code,
+                if (outcome.first.error != null) lastFailure = outcome.first
+                if (outcome.second) {
+                    delay((attempt + 1) * 2500L)
+                    continue
+                }
+                return@withContext outcome.first
+            } catch (e: Exception) {
+                val willRetry = attempt < 2
+                val error = e.message ?: e.javaClass.simpleName
+                attempts += CallAttemptTelemetry(
+                    attempt = attempt + 1,
+                    httpStatus = 0,
                     bytesSent = bodyBytes.size.toLong(),
-                    bytesReceived = respBytes.size.toLong(),
-                    latencyMs = latencyMs,
-                    promptTokens = pTok,
-                    completionTokens = cTok,
-                    error = null,
-                    damages = damages,
+                    bytesReceived = 0L,
+                    latencyMs = System.currentTimeMillis() - t0,
+                    error = error,
+                    willRetry = willRetry,
                 )
+                val failure = CallTelemetry(
+                    tileIdx = tileIdx,
+                    httpStatus = 0,
+                    bytesSent = attempts.sumOf { it.bytesSent },
+                    bytesReceived = 0L,
+                    latencyMs = attempts.sumOf { it.latencyMs },
+                    promptTokens = 0,
+                    completionTokens = 0,
+                    error = error,
+                    damages = emptyList(),
+                    attempts = attempts.toList(),
+                )
+                lastFailure = failure
+                if (willRetry) {
+                    delay((attempt + 1) * 2500L)
+                    continue
+                }
+                return@withContext failure
             }
-        } catch (e: Exception) {
-            CallTelemetry(
-                tileIdx = tileIdx,
-                httpStatus = 0,
-                bytesSent = bodyBytes.size.toLong(),
-                bytesReceived = 0L,
-                latencyMs = System.currentTimeMillis() - t0,
-                promptTokens = 0,
-                completionTokens = 0,
-                error = e.message ?: e.javaClass.simpleName,
-                damages = emptyList(),
-            )
         }
+        lastFailure ?: CallTelemetry(
+            tileIdx = tileIdx,
+            httpStatus = 0,
+            bytesSent = bodyBytes.size.toLong(),
+            bytesReceived = 0L,
+            latencyMs = 0L,
+            promptTokens = 0,
+            completionTokens = 0,
+            error = "Request failed",
+            damages = emptyList(),
+            attempts = attempts.toList(),
+        )
     }
 
     private fun parseDamagesJson(raw: String): List<Damage> {

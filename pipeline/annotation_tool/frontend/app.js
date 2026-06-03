@@ -61,7 +61,10 @@ function app() {
     },
 
     async openImage(imageId) {
-      const r = await fetch(`/api/images/${imageId}`);
+      const isBranch = String(imageId).startsWith('branch::');
+      const r = await fetch(isBranch
+        ? `/api/branch_images/meta?image_id=${encodeURIComponent(imageId)}`
+        : `/api/images/${imageId}`);
       this.selectedImage = await r.json();
       this.view = 'annotate';
       this.predictions = { gemini: null, flash: null };
@@ -75,7 +78,10 @@ function app() {
 
     async loadCachedPredictions() {
       try {
-        const r = await fetch(`/api/images/${this.selectedImage.id}/predictions_cached`);
+        const isBranch = String(this.selectedImage.id).startsWith('branch::');
+        const r = await fetch(isBranch
+          ? `/api/branch_images/predictions_cached?image_id=${encodeURIComponent(this.selectedImage.id)}`
+          : `/api/images/${this.selectedImage.id}/predictions_cached`);
         const cached = await r.json();
         for (const [modelKey, modelId] of [['gemini', 'gemini-3.1-pro'], ['flash', 'gemini-3.5-flash']]) {
           // Suche neuesten Eintrag für dieses Modell
@@ -103,7 +109,10 @@ function app() {
     initKonva() {
       const cont = document.getElementById('konva-container');
       cont.innerHTML = '';
-      const imageUrl = `/api/images/${this.selectedImage.id}/file`;
+      const isBranch = String(this.selectedImage.id).startsWith('branch::');
+      const imageUrl = isBranch
+        ? `/api/branch_images/file?image_id=${encodeURIComponent(this.selectedImage.id)}`
+        : `/api/images/${this.selectedImage.id}/file`;
       const img = new Image();
       img.onload = () => {
         const stageW = window.innerWidth - 360;
@@ -227,7 +236,10 @@ function app() {
       const mode = this.tileMode ? 'multi-scale-10x' : 'standard';
       try {
         const tiledParam = this.tileMode ? '&tiled=true' : '';
-        const r = await fetch(`/api/images/${this.selectedImage.id}/predictions?model=${model}${tiledParam}&force=true`);
+        const isBranch = String(this.selectedImage.id).startsWith('branch::');
+        const r = await fetch(isBranch
+          ? `/api/branch_images/predictions?image_id=${encodeURIComponent(this.selectedImage.id)}&model=${model}${tiledParam}&force=true`
+          : `/api/images/${this.selectedImage.id}/predictions?model=${model}${tiledParam}&force=true`);
         const data = await r.json();
         this.predLatency[model] = ((performance.now() - t0) / 1000).toFixed(1);
         this.predMode[model] = mode;
@@ -263,12 +275,16 @@ function app() {
     },
 
     async nextImage() {
-      const imgs = this.selectedCar.images;
+      const imgs = String(this.selectedImage?.id).startsWith('branch::')
+        ? (this.selectedCar.branch_pictures || []).map(p => ({ id: p.image_id }))
+        : this.selectedCar.images;
       const idx = imgs.findIndex(i => i.id === this.selectedImage.id);
       if (idx < imgs.length - 1) await this.openImage(imgs[idx+1].id);
     },
     async prevImage() {
-      const imgs = this.selectedCar.images;
+      const imgs = String(this.selectedImage?.id).startsWith('branch::')
+        ? (this.selectedCar.branch_pictures || []).map(p => ({ id: p.image_id }))
+        : this.selectedCar.images;
       const idx = imgs.findIndex(i => i.id === this.selectedImage.id);
       if (idx > 0) await this.openImage(imgs[idx-1].id);
     },
@@ -280,7 +296,10 @@ function app() {
 
     // === Damage Cases ===
     get allDamagePhotosFlat() {
-      return (this.selectedCar?.damage_cases || []).flatMap(c => c.photos);
+      return [
+        ...(this.selectedCar?.branch_pictures || []),
+        ...(this.selectedCar?.damage_cases || []).flatMap(c => c.photos),
+      ];
     },
 
     damageSummary(damagesList) {

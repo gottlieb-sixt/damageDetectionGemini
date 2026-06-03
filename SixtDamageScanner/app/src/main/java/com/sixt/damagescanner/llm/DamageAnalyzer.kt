@@ -2,6 +2,8 @@ package com.sixt.damagescanner.llm
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.util.Base64
 import com.sixt.damagescanner.logging.CallTelemetry
 import kotlinx.coroutines.Dispatchers
@@ -32,8 +34,10 @@ object DamageAnalyzer {
         }
         val t0 = System.currentTimeMillis()
 
-        val raw = withContext(Dispatchers.IO) { BitmapFactory.decodeFile(file.absolutePath) }
-            ?: error("decode failed")
+        val raw = withContext(Dispatchers.IO) {
+            val decoded = BitmapFactory.decodeFile(file.absolutePath) ?: error("decode failed")
+            applyExifOrientation(file, decoded)
+        }
         val originalResolution = raw.width to raw.height
         val full = withContext(Dispatchers.IO) { resize(raw, opts.maxSide) }
         val sentResolution = full.width to full.height
@@ -105,6 +109,40 @@ object DamageAnalyzer {
     }
 
     // ───────── Bitmap helpers ─────────
+
+    /**
+     * Rotates/flips [bm] according to the JPEG's EXIF orientation tag so the
+     * bitmap pixels are upright. CameraX writes a 4000×3000 sensor frame plus an
+     * orientation flag (typically 6 = rotate 90° CW) rather than rotating pixels.
+     * Coil applies this flag when displaying, so we MUST apply it here too — both
+     * for the model input and for the overlay coordinate frame to line up.
+     */
+    private fun applyExifOrientation(file: File, bm: Bitmap): Bitmap {
+        val orientation = try {
+            ExifInterface(file.absolutePath)
+                .getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+        } catch (e: Exception) {
+            ExifInterface.ORIENTATION_NORMAL
+        }
+        val m = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> m.postRotate(90f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> m.postRotate(180f)
+            ExifInterface.ORIENTATION_ROTATE_270 -> m.postRotate(270f)
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> m.postScale(-1f, 1f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> m.postScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> { m.postRotate(90f); m.postScale(-1f, 1f) }
+            ExifInterface.ORIENTATION_TRANSVERSE -> { m.postRotate(270f); m.postScale(-1f, 1f) }
+            else -> return bm
+        }
+        return try {
+            Bitmap.createBitmap(bm, 0, 0, bm.width, bm.height, m, true).also {
+                if (it != bm) bm.recycle()
+            }
+        } catch (e: OutOfMemoryError) {
+            bm
+        }
+    }
 
     private fun resize(bm: Bitmap, maxSide: Int): Bitmap {
         val mx = max(bm.width, bm.height)

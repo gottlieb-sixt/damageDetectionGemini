@@ -112,3 +112,7 @@ Thumbs.db
 *.tmp
 *.bak
 node_modules/
+
+# Local ADB/device photo pulls (large debug artifacts, not for VCS)
+adb_pulls/
+android_pulls/
